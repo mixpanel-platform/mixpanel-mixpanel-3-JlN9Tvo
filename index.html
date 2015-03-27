@@ -5,29 +5,7 @@
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
-    <style>
-svg {
-  background: #fff;
-}
-
-.node {
-  stroke-width: 0;
-  fill-opacity: 0.4;
-}
-
-.node text {
-  text-anchor: middle;
-  alignment-baseline: middle;
-  fill-opacity: 1;
-}
-
-.link {
-  stroke: #999;
-  stroke-opacity: .6;
-  stroke-linecap: round;
-}
-    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script> <!-- Add this line -->
   </head>
   <body class="mixpanel-platform-body">
     <div class="mixpanel-platform-section">
@@ -35,8 +13,6 @@ svg {
     </div>
     <script>
         var eventsArray = ['$signup'];
-        var nodesMap = {}, nodesArray = []; // stores our node data
-        var linksMap = {}, linksArray = []; // stores our link data
 
         var eventSelect = $('#eventSelect').MPEventSelect();
 
@@ -47,60 +23,15 @@ svg {
             // If events is ['A', 'B', 'C'], this is equivalent to calling
             // MP.api.funnel('A', 'B', 'C') ...
             MP.api.funnel.apply(MP.api, events).done(function(funnelData) {
-              
-                // Sum step counts
-                var steps = _.map(funnelData, function (step) {
-                    return {
-                        event: _.first(_.values(step)).event,
-                        count: _.sum(_.pluck(step, 'count'))
-                    };
-                });
-
-                // Add nodes
-                _.each(steps, function (step, i) {
-                    step = _.clone(step); // copy step so that it isn't modified
-                    var event = step.event;
-                    var count = step.count;
-
-                    if (_.has(nodesMap, event)) { // if the node already exists check its count
-                        // Each node's count should be the max value it has in any funnel
-                        nodesMap[event].count = _.max([nodesMap[event].count, count]);
-                    } else if (count) { // otherwise create node if it has a non-zero count
-                        nodesMap[event] = step; // add the new node to our data structures
-                        nodesArray.push(step);
-                    }
-                });
-
-                // Add links
-                _.each(steps, function (step, i) {
-                    var nextStep = steps[i + 1];
-
-                    // Only create a link if nextStep exists and has a non-zero count
-                    if (nextStep && nextStep.count && _.has(nodesMap, nextStep.event)) {
-
-                        // Only create a link if one doesn't exist for these two events yet
-                        if (!_.has(linksMap, step.event + '-' + nextStep.event)) {
-                            var link = {
-                                // link target and source values are set as corresponding nodes
-                                source: nodesMap[step.event],
-                                target: nodesMap[nextStep.event],
-                                count: nextStep.count // link count is the target node count
-                            };
-                            // add the new link to our data structures
-                            linksMap[step.event + '-' + nextStep.event] = link;
-                            linksArray.push(link);
-                        }
-                    }
-                });
-
-                renderGraph();
+                console.log('Results:');
+                console.log(funnelData);
             });
         };
 
         // Do an initial query to render the first event node
         runQuery(eventsArray);
 
-        // When the event select changes, re-query and re-render
+        // When the event select changes, re-query
         eventSelect.on('change', function () {
             var event = eventSelect.MPEventSelect('value');
 
@@ -127,55 +58,6 @@ svg {
 
         var colorIndex = 0; // incremented to select a different color for each node
         var nodeIndex = 0;  // incremented to be display a funnel step number in node labels
-        
-        // The D3 Force Layout that calculates our node and link positions
-        // See https://github.com/mbostock/d3/wiki/Force-Layout for detailed documentation
-        var forceLayout = d3.layout.force()
-            .nodes(nodesArray) // link our node data with the layout
-            .links(linksArray) // link our link data with the layout
-            .size([width, height])
-            .charge(-120) // node repulsion/attraction - should always be negative
-            .linkDistance(300) // the distance nodes are placed from each other
-            .linkStrength(function (d) { return strengthScale(d.count); }) // set link strength based on count
-            .on('tick', function() { // a function that runs continuously to animate node and link positions
-                linkElements // update link positions
-                    .attr('x1', function(d) { return d.source.x; })
-                    .attr('y1', function(d) { return d.source.y; })
-                    .attr('x2', function(d) { return d.target.x; })
-                    .attr('y2', function(d) { return d.target.y; });
-
-                nodeElements // update node positions
-                    .attr('cx', function(d) { return d.x; })
-                    .attr('cy', function(d) { return d.y; });
-            });
-            
-        function renderGraph() {
-            var maxCount = _.max(_.pluck(nodesArray, 'count'));
-
-            // update scale domains for the new data
-            countScale.domain([0, maxCount]);
-            strengthScale.domain([0, maxCount]);
-
-            // our data has changed - rebind layout data to SVG elements
-            nodeElements = nodeElements.data(forceLayout.nodes());
-            linkElements = linkElements.data(forceLayout.links());
-
-            nodeElements.enter() // for any new node data, add corresponding node elements
-              .append('circle')
-                .attr("class", "node")
-                .attr("r", function (d) { return countScale(d.count); }) // set node circle radius
-                .style("fill", function (d) { return colorScale(++colorIndex); }) // set node color
-                .call(forceLayout.drag);
-
-            linkElements.enter() // for any new link data, add corresponding link elements
-              .insert('line', ':first-child') // prepend links so that they are always behind nodes
-                .attr('class', 'link')
-                .style('stroke-width', function(d) { return countScale(d.count); }); // set link width based on count
-
-            // (Re)start the layout - must happen any time node or link data changes
-            // https://github.com/mbostock/d3/wiki/Force-Layout#start
-            forceLayout.start();
-        }
     </script>
   </body>
 </html>
